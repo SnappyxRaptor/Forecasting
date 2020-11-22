@@ -1,0 +1,308 @@
+estimate = function (Catalog, S = c(2012,1), E = c(2020,3), H = 8) {
+  library(ggplot2)
+  library(forecast)
+  library(fpp2)
+  library(readxl)
+  library(xts)
+  library(dplyr)
+  library(Metrics)
+  
+  Transactions_Catalog = subset(Transactions, CATALOG_ID == Catalog,
+                                select = c(Date, TRANS_QTY))
+  
+  # Aggregate data by quarter
+  Transactions_Quarterly = Transactions_Catalog %>%
+    mutate(yq = as.Date(as.yearqtr(Date, format="%Y-%m-%d"), format = "%Y-%m-%d")) %>%
+    group_by(yq) %>%
+    summarize(TotalPerPeriod = sum(TRANS_QTY)) %>%
+    na.omit()
+  
+  
+  # convert yq to date
+  Transactions_Quarterly$yq = as.Date(Transactions_Quarterly$yq, format = "%Y-%m-%d")
+  
+  Transactions_Quarterly
+  # make usage xts time series from data
+  
+  usage = xts(Transactions_Quarterly[,2], order.by = as.Date(Transactions_Quarterly$yq))
+  
+  # convert xts to ts object 
+  library(tsbox)
+  usage = ts_ts(usage)
+  
+  # convert missing values to 0 (no usage)
+  usage[is.na(usage)] = 0
+  ## training set, set timeframe for training the model ##
+  train = window(usage, start = S, end= E)
+  
+  ### forecasting methods ##
+  meanfc <- meanf(train, h = H) 
+  res_meanfc = checkresiduals(meanfc)
+  
+  # mean method error
+  
+  e_meanfc<- tsCV(train, forecastfunction = meanf, h = H)
+  mse_meanfc = colMeans(e_meanfc^2, na.rm = TRUE)
+  mape_meanfc = mape(meanfc$fitted, train)
+  
+  # plot mean method
+  
+  Plot_Mean = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(meanfc, h = H), series = "meanfc", PI = TRUE, alpha = .8) +
+    autolayer(fitted(meanfc), series = "fitted values meanfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Mean method") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  ## seasonal naive method ##
+  snaivefc <- snaive(train, level = c(.75), h = H)
+  res_snaivefc = checkresiduals(snaivefc)
+  
+  # seasonal naive method error
+  
+  e_snaivefc = tsCV(train, forecastfunction = snaive, h = H)
+  mse_snaivefc = colMeans(e_snaivefc^2, na.rm = TRUE)
+  mape_snaivefc = mape(snaivefc$fitted, train)
+  
+  Plot_Seasonal_Naive = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(snaivefc, h=H), series= "snaivefc", PI=TRUE, alpha = .8) +
+    autolayer(fitted(snaivefc), series = "fitted values snaivefc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Seasonal Naive") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  
+  ## simple exponential smoothing ##
+  sesfc <- ses(train, level = c(75,85,95), h = H)
+  res_sesfc = checkresiduals(sesfc)
+  
+  # simple exponential smoothing method error
+  
+  e_sesfc = tsCV(train, forecastfunction = ses, h = H)
+  mse_sesfc = colMeans(e_sesfc^2, na.rm = TRUE)
+  mape_sesfc = mape(sesfc$fitted, train)
+  
+  Plot_Simple_Exponential_Smoothing = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(sesfc, h=H), series= "sesfc", PI=TRUE, alpha = .7) +
+    autolayer(fitted(sesfc), series = "fitted values sesfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Simple Exponential Smoothing") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  ## exponential smoothing with trend, (Holt method) ##
+  holtfc <- holt(train, level = c(75,85,95),  h=H)
+  res_holtfc = checkresiduals(holtfc)
+  
+  # exponential smoothing with trend method error
+  
+  e_holtfc = tsCV(train, forecastfunction = holt, h = H)
+  mse_holtfc = colMeans(e_holtfc^2, na.rm = TRUE)
+  mape_holtfc = mape(holtfc$fitted, train)
+  
+  Plot_Holt = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(holtfc, h=H), series= "holtfc", PI = TRUE, alpha = .5) +
+    autolayer(fitted(holtfc), series = "fitted values holtfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Holt Method") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  ## exponential smoothing with trend, damped ##
+  dampedholtfc <- holt(train, damped = TRUE, level = c(75,85,95), h=H)
+  res_dampedholtfc = checkresiduals(dampedholtfc)
+  
+  # exponential smoothing with trend method, damped
+  
+  e_dampedholtfc = tsCV(train, forecastfunction = holt, damped = TRUE, h = H)
+  mse_dampedholtfc = colMeans(e_dampedholtfc^2, na.rm = TRUE)
+  mape_dampedholtfc = mape(dampedholtfc$fitted, train)
+  
+  Plot_Damped_Holt = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(dampedholtfc, h = H), series = "dampedholdfc", PI = TRUE, alpha = .8) +
+    autolayer(fitted(dampedholtfc), series = "fitted values dampedholtfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Damped Holt Method") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  ## exponential smoothing with trend and seasonality, additive (Holt Winter method) ##
+  addhwfc <- hw(train, seasonal = "additive", level = c(75,85,95), h= H)
+  res_addhwfc = checkresiduals(addhwfc)
+  
+  # exponential smoothing with trend and seasonality, additive error
+  e_addhwfc  = tsCV(train, forecastfunction = holt, seasonal = "additive", h = H)
+  mse_addhwfc  = colMeans(e_addhwfc^2, na.rm = TRUE)
+  mape_addhwfc = mape(addhwfc$fitted, train)
+  
+  Plot_Holt_Winters = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(addhwfc, h=H), series = "addhwfc",  PI=TRUE, alpha = .7) +
+    autolayer(fitted(addhwfc), series = "fitted values addhwfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Holt Winters Additive") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  ## ets method ##
+  etsfc = ets(train)
+  res_etsfc = checkresiduals(etsfc)
+  
+  # ets method error
+  
+  fets = function(x, h){forecast(ets(x), h = h)}
+  e_etsfc = tsCV(train, fets, h = H)
+  mse_etsfc = colMeans(e_etsfc^2, na.rm = TRUE)
+  mape_etsfc = mape(etsfc$fitted, train)
+  
+  Plot_ETS = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(etsfc, h=H, level = c(75,85)), series= "etsfc", PI=TRUE, alpha = .6) +
+    autolayer(fitted(etsfc), series = "fitted values etsfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with ETS") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  
+  ## auto arima method ##
+  arimafc = auto.arima(train, lambda = BoxCox.lambda(train))
+  res_arimafc = checkresiduals(arimafc)
+  
+  # arima method error
+  
+  farma <- function(x, h){forecast(auto.arima(x), h = h)}
+  e_arimafc  = tsCV(train, farma, h= H)
+  mse_arimafc   = colMeans(e_arimafc^2, na.rm = TRUE)
+  mape_arimafc = mape(arimafc$fitted, train)
+  
+  # plot arima forecast
+  
+  Plot_Arima =
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(arimafc, h=H, level = c(75,85)), series= "arimafc", PI=TRUE, alpha = .7) +
+    autolayer(fitted(arimafc), series = "fitted values arimafc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with Arima") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  
+  ## tbats method ##
+  tbatsfc = tbats(train)
+  res_tbatsfc = checkresiduals(tbatsfc)
+  
+  # tbats method error
+  
+  ftbats <- function(x, h){forecast(tbats(x), h = h)}
+  e_tbatsfc = tsCV(train, ftbats, h= H)
+  mse_tbatsfc   = colMeans(e_arimafc^2, na.rm = TRUE)
+  mape_tbatsfc = mape(tbatsfc$fitted, train)
+  
+  # plot tbats method
+  
+  Plot_Tbats = 
+    autoplot(window(usage, start = 2008)) +
+    autolayer(forecast(tbatsfc, h=H, level = c(75,85)), series= "tbatsfc", PI=TRUE, alpha = .7) +
+    autolayer(fitted(tbatsfc), series = "fitted values tbatsfc") +
+    xlab("Year") + ylab("Quartertly Usage") +
+    ggtitle("Forecast with state space model") +
+    guides(colour=guide_legend(title="Forecast"))
+  
+  
+  ResidualValidation = data.frame(name = c("meanfc",
+                                           "snaivefc",
+                                           "sesfc",
+                                           "holtfc", 
+                                           "dampedholtfc",
+                                           "addhwfc",
+                                           "etsfc",
+                                           "arimafc",
+                                           "tbatstc"),
+                                  
+                                  method = c(meanfc$method,
+                                             snaivefc$method,
+                                             sesfc$method,
+                                             holtfc$method,
+                                             dampedholtfc$method,
+                                             addhwfc$method,
+                                             forecast(etsfc, h = H)$method,
+                                             forecast(arimafc, h = H)$method,
+                                             tbatsfc$method),
+                                  
+                                  BoxCox = c(res_meanfc$p.value,
+                                             res_snaivefc$p.value,
+                                             res_sesfc$p.value,
+                                             res_holtfc$p.value,
+                                             res_dampedholtfc$p.value,
+                                             res_addhwfc$p.value,
+                                             res_etsfc$p.value,
+                                             res_arimafc$p.value,
+                                             res_tbatsfc$p.value),
+                                  
+                                  MAPE = c(mape_meanfc,
+                                           mape_snaivefc,
+                                           mape_sesfc,
+                                           mape_holtfc,
+                                           mape_dampedholtfc,
+                                           mape_addhwfc,
+                                           mape_etsfc,
+                                           mape_arimafc,
+                                           mape_tbatsfc))
+  
+  
+  
+  
+  ## filter only methods with residuals like white noise ##
+  goodmethods = subset(ResidualValidation, BoxCox > .05)
+
+  mse_matrix = matrix(data = c(mse_meanfc,
+                               mse_snaivefc,
+                               mse_sesfc,
+                               mse_holtfc,
+                               mse_dampedholtfc,
+                               mse_addhwfc,
+                               mse_etsfc,
+                               mse_arimafc,
+                               mse_tbatsfc),
+                      
+                      nrow= 9,
+                      ncol = H,
+                      byrow = TRUE,
+                      dimnames = list(c("mse_meanfc",
+                                        "mse_snaivefc",
+                                        "mse_sesfc",
+                                        "mse_holtfc",
+                                        "mse_dampedholtfc",
+                                        "mse_addhwfc",
+                                        "mse_etsfc",
+                                        "mse_arimafc",
+                                        "mse_tbatsfc"),
+                                      1:H))
+  
+  
+  
+  
+  mse_matrix = data.frame(mse_matrix)
+  
+  
+  return(list(
+    Arima_forecast = round(summary(forecast(arimafc, h=H, level = c(75,85,95)), 0)),
+    Plot_Arima ,
+    Tbats_forecast = round(summary(forecast(tbatsfc, h=H, level = c(75,85,95)), 0)),
+    Plot_Tbats, 
+    Seasonal_Naive_forecast = round(summary(snaivefc),0),
+    Plot_Seasonal_Naive,
+    Simple_exponential_smoothing_forecast = round(summary(sesfc),0),
+    Plot_Simple_Exponential_Smoothing,
+    Exponential_smoothing_state_space_forecast = round(summary(forecast(etsfc, h=H, level = c(75,85,95))),0),
+    Plot_ETS,
+    Winter_Holt_additive_forecast = round(summary(addhwfc),0),
+    Plot_Holt_Winters,
+    Holt_forecast = round(summary(holtfc),0),
+    Plot_Holt,
+    Damped_Holt_Forecast = round(summary(dampedholtfc),0),
+    Plot_Damped_Holt,
+    Mean_square_error_matrix = mse_matrix[order(mse_matrix$X4, mse_matrix$X5),], 
+    Valid_forecasting_methods = goodmethods
+    ))
+}
